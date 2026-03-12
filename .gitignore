@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+# Virtual envs
+.venv/
+# Poetry
+.poetry/
+# VSCode / Cursor
+.vscode/
+.idea/
+# Env files
+.env

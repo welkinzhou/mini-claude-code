@@ -1,18 +1,25 @@
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from mini_claude_code.config import Config
 from mini_claude_code.core.agent import AgentLoopConfig, agent_loop
 from mini_claude_code.llm.anthropic_client import create_anthropic_client
 from mini_claude_code.tools.bash import BashTool
+from mini_claude_code.tools.read_file import ReadFileTool
+from mini_claude_code.tools.write_file import WriteFileTool
+from mini_claude_code.tools.edit_file import EditFileTool
 from mini_claude_code.tools.registry import ToolRegistry
 from mini_claude_code.tools.runner import ToolRunner
+from mini_claude_code.tools.todo import TodoTool
+from mini_claude_code.tools.path_safety import get_workdir
+
 
 # 系统提示词
 def _default_system_prompt() -> str:
-    return f"You are a coding agent at {os.getcwd()}. Use bash to solve tasks. Act, don't explain."
+    return f"""You are a coding agent at {get_workdir()}.
+Use the todo tool to plan multi-step tasks. Mark in_progress before starting, completed when done.
+Prefer tools over prose."""
 
 
 def main() -> None:
@@ -21,7 +28,10 @@ def main() -> None:
     # 创建 Anthropic 客户端
     client = create_anthropic_client(config)
     # 创建工具注册表
-    registry = ToolRegistry.from_tools([BashTool()])
+    registry = ToolRegistry.from_tools(
+        [BashTool(), ReadFileTool(), WriteFileTool(), EditFileTool(), TodoTool()]
+    )
+
     # 定义工具使用回调函数
     def on_tool_use(tool_name: str, tool_input: dict[str, Any]) -> None:
         if tool_name == "bash" and isinstance(tool_input.get("command"), str):
@@ -31,8 +41,10 @@ def main() -> None:
 
     # 获取模型 ID
     model_id = config.require_model_id()
-    # 创建 Agent 循环配置   
-    loop_config = AgentLoopConfig(model=model_id, system=_default_system_prompt(), max_tokens=8000)
+    # 创建 Agent 循环配置
+    loop_config = AgentLoopConfig(
+        model=model_id, system=_default_system_prompt(), max_tokens=8000
+    )
 
     # 历史消息列表
     history: list[dict[str, Any]] = []
@@ -64,6 +76,6 @@ def main() -> None:
         if isinstance(response_content, list):
             for block in response_content:
                 if hasattr(block, "text"):
+                    # 任务完成后反馈
                     print(block.text)
         print()
-

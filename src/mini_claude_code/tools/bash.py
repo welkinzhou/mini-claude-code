@@ -46,6 +46,7 @@ class BashTool:
                 cwd=os.getcwd(),
                 capture_output=True,
                 text=True,
+                check=False,
                 timeout=self.timeout_s,
             )
             # 获取输出，标准输出加错误输出
@@ -57,4 +58,3 @@ class BashTool:
         except subprocess.TimeoutExpired:
             # 返回超时错误
             return f"Error: Timeout ({self.timeout_s}s)"
-

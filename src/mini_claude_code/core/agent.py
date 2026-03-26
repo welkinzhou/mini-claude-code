@@ -6,8 +6,8 @@ from typing import Any
 
 from mini_claude_code.tools.runner import ToolRunner
 
-
 from mini_claude_code.logging.llm_logger import LLMCallLogger
+from mini_claude_code.logging.types import TokenUsage
 
 JsonObject = dict[str, Any]
 
@@ -66,10 +66,16 @@ def agent_loop(
     tools: list[JsonObject],
     tool_runner: ToolRunner,
     config: AgentLoopConfig,
-) -> Any:
+) -> tuple[Any, TokenUsage]:
     """Run the core tool-use loop until the model stops calling tools."""
     rounds_since_todo = 0
     call_id = llm_call_logger.new_call_id()
+    total_usage: TokenUsage = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+    }
     while True:
         try:
             # 写入请求参数
@@ -106,14 +112,25 @@ def agent_loop(
             err_msg = getattr(e, "message", None) or str(e)
             print(f"\033[31mllm error: {err_msg}\033[0m")  # 红色错误输出
             # 不让程序结束：直接结束本次 agent_loop，让 cli 回到下一轮输入
-            return {"error": err_msg}
+            return {"error": err_msg}, total_usage
+
+        # 累计本轮 token 用量
+        u = response.usage
+        total_usage["input_tokens"] += getattr(u, "input_tokens", 0)
+        total_usage["output_tokens"] += getattr(u, "output_tokens", 0)
+        total_usage["cache_creation_input_tokens"] += getattr(
+            u, "cache_creation_input_tokens", 0
+        )
+        total_usage["cache_read_input_tokens"] += getattr(
+            u, "cache_read_input_tokens", 0
+        )
 
         # 将响应添加到消息列表
         messages.append({"role": "assistant", "content": response.content})
 
         # 如果模型没有调用工具，则返回响应
         if response.stop_reason != "tool_use":
-            return response
+            return response, total_usage
         # 执行工具，收集结果
         results = tool_runner.run_from_response_content(response.content)
         used_todo_flag = used_todo(response.content)

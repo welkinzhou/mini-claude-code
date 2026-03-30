@@ -46,11 +46,12 @@ class TodoTool:
             },
         )
 
+    # 更新 todo list
     def update(self, items: list) -> str:
         if len(items) > 20:
             raise ValueError("Max 20 todos allowed")
         validated = []
-        in_progress_count = 0
+        in_progress_count = 0  # 进行中计划数
         for i, item in enumerate(items):
             text = str(item.get("text", "")).strip()
             status = str(item.get("status", "pending")).lower()

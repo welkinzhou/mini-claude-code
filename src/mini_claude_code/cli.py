@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from mini_claude_code.skills import SkillLoader
+
 from mini_claude_code.config import Config
 from mini_claude_code.core.agent import AgentLoopConfig, agent_loop
 from mini_claude_code.llm.anthropic_client import create_anthropic_client
@@ -12,13 +14,22 @@ from mini_claude_code.tools.edit_file import EditFileTool
 from mini_claude_code.tools.registry import ToolRegistry
 from mini_claude_code.tools.runner import ToolRunner
 from mini_claude_code.tools.sub_agent import SubAgentTool
-from mini_claude_code.tools.todo import TodoTool
+from mini_claude_code.tools.load_skill import LoadSkillTool
+
+# from mini_claude_code.tools.todo import TodoTool
 from mini_claude_code.tools.path_safety import get_workdir
+
+
+SKILL_LOADER = SkillLoader()
 
 
 # 系统提示词
 def _default_system_prompt() -> str:
-    return f"""You are a coding agent at {get_workdir()}. Use the task tool to delegate exploration or subtasks."""
+    return f"""You are a coding agent at {get_workdir()}.
+Use load_skill to access specialized knowledge before tackling unfamiliar topics.
+
+Skills available:
+{SKILL_LOADER.get_descriptions()}"""
 
 
 SUBAGENT_SYSTEM = f"You are a coding subagent at {get_workdir()}. Complete the given task, then summarize your findings."
@@ -54,7 +65,8 @@ def main() -> None:
             ReadFileTool(),
             WriteFileTool(),
             EditFileTool(),
-            TodoTool(),
+            # TodoTool(),
+            LoadSkillTool(skill_loader=SKILL_LOADER),
             sub_agent_tool,
         ]
     )

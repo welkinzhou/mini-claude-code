@@ -29,6 +29,8 @@ class ToolRunner:
             tool_name = getattr(block, "name", None)
             # 获取工具输入
             tool_input = getattr(block, "input", None)
+            print("Tool Name: ", tool_name)
+            print("Tool Input: ", tool_input)
             # 获取工具 ID
             # tool_use 一定会返回 id
             # Anthropic 通过这个 id 将工具结果与工具使用关联起来

@@ -9,7 +9,11 @@ from mini_claude_code.tools.runner import ToolRunner
 from mini_claude_code.logging.llm_logger import LLMCallLogger
 from mini_claude_code.logging.types import TokenUsage
 
+from mini_claude_code.compact.compact import micro_compact, auto_compact
+
 JsonObject = dict[str, Any]
+
+THRESHOLD = 50000
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,6 +22,23 @@ class AgentLoopConfig:
     system: str
     max_tokens: int = 8000
 
+
+def estimate_tokens(messages: list) -> int:
+    """Rough token count: ~4 chars per token."""
+    return len(str(messages)) // 4
+
+
+def used_todo(response_content: list[Any]) -> bool:
+    for block in response_content:
+        if (
+            getattr(block, "type", None) == "tool_use"
+            and getattr(block, "name", None) == "todo"
+        ):
+            return True
+    return False
+
+
+llm_call_logger = LLMCallLogger()
 
 """
 Agent 循环，用于运行核心工具使用循环，直到模型停止调用工具
@@ -46,19 +67,6 @@ Anthropic Tool call response 结构如下:
 """
 
 
-def used_todo(response_content: list[Any]) -> bool:
-    for block in response_content:
-        if (
-            getattr(block, "type", None) == "tool_use"
-            and getattr(block, "name", None) == "todo"
-        ):
-            return True
-    return False
-
-
-llm_call_logger = LLMCallLogger()
-
-
 def agent_loop(
     *,
     messages: list[JsonObject],
@@ -77,6 +85,12 @@ def agent_loop(
         "cache_read_input_tokens": 0,
     }
     while True:
+        # 简单压缩消息
+        messages = micro_compact(messages)
+        # 如果消息长度超过阈值，则使用 llm 总结压缩
+        if estimate_tokens(messages) > THRESHOLD:
+            print("[auto_compact triggered]")
+            messages[:] = auto_compact(client, config.model, messages)
         try:
             # 写入请求参数
             llm_call_logger.log_request(
@@ -133,6 +147,7 @@ def agent_loop(
             return response, total_usage
         # 执行工具，收集结果
         results = tool_runner.run_from_response_content(response.content)
+
         used_todo_flag = used_todo(response.content)
 
         if used_todo_flag:
@@ -148,3 +163,8 @@ def agent_loop(
             )
         # 将结果添加到消息列表
         messages.append({"role": "user", "content": results})
+
+        if tool_runner.pending_compact:
+            tool_runner.pending_compact = False
+            print("[manual compact]")
+            messages[:] = auto_compact(client, config.model, messages)

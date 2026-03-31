@@ -15,6 +15,7 @@ from mini_claude_code.tools.registry import ToolRegistry
 from mini_claude_code.tools.runner import ToolRunner
 from mini_claude_code.tools.sub_agent import SubAgentTool
 from mini_claude_code.tools.load_skill import LoadSkillTool
+from mini_claude_code.tools.compact import CompactTool
 
 # from mini_claude_code.tools.todo import TodoTool
 from mini_claude_code.tools.path_safety import get_workdir
@@ -25,10 +26,9 @@ SKILL_LOADER = SkillLoader()
 
 # 系统提示词
 def _default_system_prompt() -> str:
-    return f"""You are a coding agent at {get_workdir()}.
-Use load_skill to access specialized knowledge before tackling unfamiliar topics.
-
-Skills available:
+    return f"""你是一个工作在 {get_workdir()} 目录下的代码助手。
+使用工具解决问题，使用 load_skill 工具访问专业知识，在处理陌生主题之前。
+工具列表:
 {SKILL_LOADER.get_descriptions()}"""
 
 
@@ -68,6 +68,7 @@ def main() -> None:
             # TodoTool(),
             LoadSkillTool(skill_loader=SKILL_LOADER),
             sub_agent_tool,
+            CompactTool(client=client, model_id=model_id),
         ]
     )
 

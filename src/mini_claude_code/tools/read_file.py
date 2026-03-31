@@ -27,7 +27,7 @@ class ReadFileTool:
             },
         )
 
-    def run(self, tool_input: JsonObject) -> str:
+    def run(self, tool_input: JsonObject, _: "ToolRunner") -> str:
         path = tool_input.get("path")
         limit = tool_input.get("limit")
         try:

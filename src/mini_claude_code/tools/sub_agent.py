@@ -38,7 +38,7 @@ class SubAgentTool:
             },
         )
 
-    def run(self, tool_input: JsonObject) -> str:
+    def run(self, tool_input: JsonObject, _: "ToolRunner") -> str:
         from mini_claude_code.core.agent import agent_loop  # avoid circular import
 
         task = tool_input.get("task")

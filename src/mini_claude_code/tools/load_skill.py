@@ -23,7 +23,7 @@ class LoadSkillTool:
             },
         )
 
-    def run(self, tool_input: JsonObject) -> str:
+    def run(self, tool_input: JsonObject, _: "ToolRunner") -> str:
         # 获取命令
         name = tool_input.get("name")
         if not isinstance(name, str):

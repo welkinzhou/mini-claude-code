@@ -28,7 +28,7 @@ class BashTool:
             },
         )
 
-    def run(self, tool_input: JsonObject) -> str:
+    def run(self, tool_input: JsonObject, _: "ToolRunner") -> str:
         # 获取命令
         command = tool_input.get("command")
         if not isinstance(command, str):

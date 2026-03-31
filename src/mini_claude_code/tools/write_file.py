@@ -25,7 +25,7 @@ class WriteFileTool:
             },
         )
 
-    def run(self, tool_input: JsonObject) -> str:
+    def run(self, tool_input: JsonObject, _: "ToolRunner") -> str:
         path = tool_input.get("path")
         text = tool_input.get("text")
         try:

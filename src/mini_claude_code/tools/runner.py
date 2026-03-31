@@ -1,16 +1,29 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable
 
 from .base import JsonObject
 from .registry import ToolRegistry
 
+RoundCompleteCallback = Callable[[], None]
 
-@dataclass(frozen=True, slots=True)
+
+@dataclass(slots=True)
 class ToolRunner:
     registry: ToolRegistry
     on_tool_use: Callable[[str, JsonObject], None] | None = None
+    on_round_complete: list[RoundCompleteCallback] = field(default_factory=list)
+    pending_compact: bool = False
+
+    def add_round_complete_once(self, callback: RoundCompleteCallback) -> None:
+        """Register a one-shot callback that removes itself after being called once."""
+
+        def _once() -> None:
+            self.on_round_complete.remove(_once)
+            callback()
+
+        self.on_round_complete.append(_once)
 
     def run_from_response_content(
         self, response_content: Iterable[Any]
@@ -48,10 +61,13 @@ class ToolRunner:
             else:
                 if self.on_tool_use is not None:
                     self.on_tool_use(tool_name, tool_input)
-                output = tool.run(tool_input)
+                output = tool.run(tool_input, self)
             # 将工具结果添加到结果列表
             # tool_use_id 告诉 Anthropic 这个结果是哪个工具使用的
             results.append(
                 {"type": "tool_result", "tool_use_id": tool_id, "content": output}
             )
+
+        for cb in list(self.on_round_complete):
+            cb()
         return results

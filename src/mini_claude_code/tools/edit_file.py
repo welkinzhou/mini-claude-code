@@ -26,7 +26,7 @@ class EditFileTool:
             },
         )
 
-    def run(self, tool_input: JsonObject) -> str:
+    def run(self, tool_input: JsonObject, _: "ToolRunner") -> str:
         path = tool_input.get("path")
         old_text = tool_input.get("old_text")
         new_text = tool_input.get("new_text")

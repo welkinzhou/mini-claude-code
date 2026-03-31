@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
+if TYPE_CHECKING:
+    from .runner import ToolRunner
 
 JsonObject = dict[str, Any]
 
@@ -31,5 +33,5 @@ class ToolSpec:
 class Tool(Protocol):
     spec: ToolSpec
 
-    def run(self, tool_input: JsonObject) -> str: ...
+    def run(self, tool_input: JsonObject, runner: ToolRunner) -> str: ...
 

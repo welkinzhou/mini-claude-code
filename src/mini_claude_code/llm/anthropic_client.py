@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from typing import Any
 from anthropic import Anthropic
 
 from mini_claude_code.config import Config
+
+JsonObject = dict[str, Any]
 
 
 def create_anthropic_client(config: Config) -> Anthropic:
@@ -18,3 +21,23 @@ def create_anthropic_client(config: Config) -> Anthropic:
         return Anthropic(base_url=config.api_base, api_key=config.api_key)
     return Anthropic()
 
+
+def invoke_anthropic_client(
+    *,
+    client: Anthropic,
+    model: str,
+    system: str,
+    max_tokens: int,
+    messages: list[JsonObject],
+    tools: list[JsonObject] | None = None,
+) -> str:
+    kwargs: dict[str, Any] = dict(
+        model=model,
+        system=system,
+        messages=messages,
+        max_tokens=max_tokens,
+    )
+    if tools:
+        kwargs["tools"] = tools
+    response = client.messages.create(**kwargs)
+    return response

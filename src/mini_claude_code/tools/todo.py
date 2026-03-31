@@ -79,6 +79,6 @@ class TodoTool:
         lines.append(f"\n({done}/{len(self.items)} completed)")
         return "\n".join(lines)
 
-    def run(self, tool_input: JsonObject) -> str:
+    def run(self, tool_input: JsonObject, _: "ToolRunner") -> str:
         items = tool_input.get("items")
         return self.update(items)

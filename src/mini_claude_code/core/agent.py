@@ -28,16 +28,6 @@ def estimate_tokens(messages: list) -> int:
     return len(str(messages)) // 4
 
 
-def used_todo(response_content: list[Any]) -> bool:
-    for block in response_content:
-        if (
-            getattr(block, "type", None) == "tool_use"
-            and getattr(block, "name", None) == "todo"
-        ):
-            return True
-    return False
-
-
 llm_call_logger = LLMCallLogger()
 
 """
@@ -76,7 +66,6 @@ def agent_loop(
     config: AgentLoopConfig,
 ) -> tuple[Any, TokenUsage]:
     """Run the core tool-use loop until the model stops calling tools."""
-    rounds_since_todo = 0
     call_id = llm_call_logger.new_call_id()
     total_usage: TokenUsage = {
         "input_tokens": 0,
@@ -148,19 +137,6 @@ def agent_loop(
         # 执行工具，收集结果
         results = tool_runner.run_from_response_content(response.content)
 
-        used_todo_flag = used_todo(response.content)
-
-        if used_todo_flag:
-            rounds_since_todo = 0
-        else:
-            rounds_since_todo += 1
-
-        if rounds_since_todo >= 3:
-            # 提醒信息放入尾部，tool_use 后必须立刻返回 tool_result
-            # 测试是否是 messages 顺序导致
-            results.append(
-                {"type": "text", "text": "<reminder>Update your todos.</reminder>"}
-            )
         # 将结果添加到消息列表
         messages.append({"role": "user", "content": results})
 

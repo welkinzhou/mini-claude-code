@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from mini_claude_code.utils import safe_path
 
 from .base import JsonObject, ToolSpec
-from .path_safety import safe_path
 
 
 @dataclass(frozen=True, slots=True)

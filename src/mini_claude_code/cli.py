@@ -7,32 +7,38 @@ from mini_claude_code.skills import SkillLoader
 from mini_claude_code.config import Config
 from mini_claude_code.core.agent import AgentLoopConfig, agent_loop
 from mini_claude_code.llm.anthropic_client import create_anthropic_client
-from mini_claude_code.tools.bash import BashTool
-from mini_claude_code.tools.read_file import ReadFileTool
-from mini_claude_code.tools.write_file import WriteFileTool
-from mini_claude_code.tools.edit_file import EditFileTool
-from mini_claude_code.tools.registry import ToolRegistry
-from mini_claude_code.tools.runner import ToolRunner
-from mini_claude_code.tools.sub_agent import SubAgentTool
-from mini_claude_code.tools.load_skill import LoadSkillTool
-from mini_claude_code.tools.compact import CompactTool
-
-# from mini_claude_code.tools.todo import TodoTool
-from mini_claude_code.tools.path_safety import get_workdir
+from mini_claude_code.tools import (
+    TaskManager,
+    TaskTool,
+    ToolRegistry,
+    ToolRunner,
+    CompactTool,
+    BashTool,
+    ReadFileTool,
+    SubAgentTool,
+    WriteFileTool,
+    EditFileTool,
+    LoadSkillTool,
+)
+from mini_claude_code.utils import get_workdir
 
 
 SKILL_LOADER = SkillLoader()
+TASKS_DIR = get_workdir() / ".tasks"
 
 
 # 系统提示词
 def _default_system_prompt() -> str:
     return f"""你是一个工作在 {get_workdir()} 目录下的代码助手。
-使用工具解决问题，使用 load_skill 工具访问专业知识，在处理陌生主题之前。
-工具列表:
+使用工具解决问题，涉及相关方向的知识，使用 load_skill 工具添加专业 skill。
+skill列表:
 {SKILL_LOADER.get_descriptions()}"""
 
 
 SUBAGENT_SYSTEM = f"You are a coding subagent at {get_workdir()}. Complete the given task, then summarize your findings."
+
+
+task_manager = TaskManager(TASKS_DIR)
 
 
 def main() -> None:
@@ -58,6 +64,7 @@ def main() -> None:
         client=client, config=sub_loop_config, registry=sub_registry
     )
 
+    task_tool = TaskTool(task_manager=task_manager)
     # 主 agent 工具注册表（包含 sub_agent）
     registry = ToolRegistry.from_tools(
         [
@@ -65,9 +72,9 @@ def main() -> None:
             ReadFileTool(),
             WriteFileTool(),
             EditFileTool(),
-            # TodoTool(),
             LoadSkillTool(skill_loader=SKILL_LOADER),
             sub_agent_tool,
+            task_tool,
             CompactTool(client=client, model_id=model_id),
         ]
     )

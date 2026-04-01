@@ -4,7 +4,7 @@ from pathlib import Path
 
 import re
 import yaml
-from mini_claude_code.tools.path_safety import get_workdir
+from mini_claude_code.utils import get_workdir
 
 SKILL_DIR = get_workdir() / "skills"
 

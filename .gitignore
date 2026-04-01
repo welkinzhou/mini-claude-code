@@ -13,3 +13,4 @@ __pycache__/
 # Env files
 .env
 logs/
+.tasks/

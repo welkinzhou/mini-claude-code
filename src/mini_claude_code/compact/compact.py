@@ -1,6 +1,6 @@
 import json
 import time
-from mini_claude_code.tools.path_safety import get_workdir
+from mini_claude_code.utils import get_workdir
 
 from anthropic import Anthropic
 

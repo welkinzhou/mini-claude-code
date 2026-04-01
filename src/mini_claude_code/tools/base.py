@@ -16,14 +16,19 @@ class ToolSpec:
     name: str
     description: str
     input_schema: JsonObject
+    input_examples: list[JsonObject] | None = None
 
     def to_anthropic(self) -> JsonObject:
         # 将工具规范转换为 Anthropic 格式
-        return {
+        spec = {
             "name": self.name,
             "description": self.description,
             "input_schema": self.input_schema,
         }
+        if self.input_examples:
+            spec["input_examples"] = self.input_examples
+        return spec
+
 
 # Protocol 协议类型
 # 定义了 Tool 接口，用于定义工具的规范
@@ -34,4 +39,3 @@ class Tool(Protocol):
     spec: ToolSpec
 
     def run(self, tool_input: JsonObject, runner: ToolRunner) -> str: ...
-

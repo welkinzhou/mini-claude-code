@@ -3,8 +3,7 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 
-from .base import JsonObject, ToolSpec
-from .runner import ToolRunner
+from mini_claude_code.runtime.tool_spec import JsonObject, ToolSpec
 
 
 class TaskManager:
@@ -214,7 +213,7 @@ class TaskTool:
             ],
         )
 
-    def run(self, input: JsonObject, _: ToolRunner) -> str:
+    def run(self, input: JsonObject, _context=None) -> str:
         action = input.get("action")
         if action == "create":
             return self.create(input.get("subject"), input.get("description"))

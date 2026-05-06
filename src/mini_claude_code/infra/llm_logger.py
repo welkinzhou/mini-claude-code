@@ -4,21 +4,46 @@ import json
 import traceback as tb
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, TypedDict
 from uuid import uuid4
 
 from .serializers import to_jsonable
-from .types import LogRecord
+
+
+EventType = Literal["llm_request", "llm_response", "llm_error"]
+
+
+class LogRecord(TypedDict, total=False):
+    ts: str
+    event: EventType
+    call_id: str
+
+    # request fields
+    model: str
+    system: str
+    max_tokens: int
+    messages: Any
+    tools: Any
+
+    # response fields
+    response: Any
+
+    # error fields
+    error_type: str
+    error: str
+    traceback: str
 
 
 class LLMCallLogger:
-    """
-    JSONL logger for each client.messages.create call.
-    Hardcoded file path by design.
+    """JSONL logger for each ``client.messages.create`` call.
+
+    日志路径通过构造函数注入。默认值仅作为兼容回退，新代码请显式传入。
     """
 
-    def __init__(self) -> None:
-        self.log_path = Path("logs/llm_calls.jsonl")
+    DEFAULT_LOG_PATH = Path("logs/llm_calls.jsonl")
+
+    def __init__(self, log_path: Path | None = None) -> None:
+        self.log_path = log_path or self.DEFAULT_LOG_PATH
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
 
     def new_call_id(self) -> str:
@@ -73,4 +98,4 @@ class LLMCallLogger:
 
     @staticmethod
     def _now() -> str:
-        return datetime.now(UTC).isoformat()
+        return datetime.now(UTC).strftime("%Y:%m:%d %H:%M:%S")

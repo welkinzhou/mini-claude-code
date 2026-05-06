@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
-from .base import JsonObject, ToolSpec
-from mini_claude_code.skills import SkillLoader
+from mini_claude_code.runtime.tool_spec import JsonObject, ToolSpec
+from mini_claude_code.providers.skills import SkillLoader
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,11 +23,10 @@ class LoadSkillTool:
             },
         )
 
-    def run(self, tool_input: JsonObject, _: "ToolRunner") -> str:
-        # 获取命令
+    def run(self, tool_input: JsonObject, _context=None) -> str:
         name = tool_input.get("name")
         if not isinstance(name, str):
             return "Error: Invalid input; expected {'name': string}"
         # 加载技能
-        skill = self.skill_loader.get_content(name)
+        skill = self.skill_loader.load_full_text(name)
         return skill

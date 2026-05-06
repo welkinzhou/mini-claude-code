@@ -1,12 +1,22 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol
-
-if TYPE_CHECKING:
-    from .runner import ToolRunner
+from typing import Any, Protocol, runtime_checkable
 
 JsonObject = dict[str, Any]
+
+
+@runtime_checkable
+class ToolRunContext(Protocol):
+    """工具运行期能拿到的最小上下文。
+
+    放在 runtime 层，使工具可以读 ``state`` 与注册一次性轮回钩子，
+    而无需反向 import core / app 层。
+    """
+
+    state: Any
+
+    def add_after_round_once(self, cb: Any) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,8 +29,7 @@ class ToolSpec:
     input_examples: list[JsonObject] | None = None
 
     def to_anthropic(self) -> JsonObject:
-        # 将工具规范转换为 Anthropic 格式
-        spec = {
+        spec: JsonObject = {
             "name": self.name,
             "description": self.description,
             "input_schema": self.input_schema,
@@ -30,12 +39,11 @@ class ToolSpec:
         return spec
 
 
-# Protocol 协议类型
-# 定义了 Tool 接口，用于定义工具的规范
-# 只要有 spec: ToolSpec 属性，
-# 并且有 run(self, tool_input: JsonObject) -> str 方法
-# 就被视为符合 Tool 类型，不需要显式继承 Tool
 class Tool(Protocol):
+    """Tool 协议：只要拥有 ``spec`` 与 ``run`` 方法即可被注册。"""
+
     spec: ToolSpec
 
-    def run(self, tool_input: JsonObject, runner: ToolRunner) -> str: ...
+    def run(
+        self, tool_input: JsonObject, context: ToolRunContext | None = None
+    ) -> str: ...

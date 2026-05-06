@@ -2,133 +2,116 @@ from __future__ import annotations
 
 from typing import Any
 
-from mini_claude_code.skills import SkillLoader
-
-from mini_claude_code.config import Config
-from mini_claude_code.core.agent import AgentLoopConfig, agent_loop
-from mini_claude_code.llm.anthropic_client import create_anthropic_client
-from mini_claude_code.tools import (
-    TaskManager,
-    TaskTool,
-    ToolRegistry,
-    ToolRunner,
-    CompactTool,
-    BashTool,
-    ReadFileTool,
-    SubAgentTool,
-    WriteFileTool,
-    EditFileTool,
-    LoadSkillTool,
+from mini_claude_code.app.bootstrap import (
+    build_app_context,
+    build_main_registry,
+    build_tool_runner,
 )
-from mini_claude_code.utils import get_workdir
+from mini_claude_code.app.context import AppContext
+from mini_claude_code.domain.state import LoopState, generate_session_id
+from mini_claude_code.runtime.loop import agent_loop
+from mini_claude_code.runtime.permission import MODES
 
 
-SKILL_LOADER = SkillLoader()
-TASKS_DIR = get_workdir() / ".tasks"
+# 修复 input 获取输入的 bug，只需要导入 readline 模块
+# 获取输入依旧使用 input
+try:
+    import readline
+
+    # #143 UTF-8 backspace fix for macOS libedit
+    readline.parse_and_bind("set bind-tty-special-chars off")
+    readline.parse_and_bind("set input-meta on")
+    readline.parse_and_bind("set output-meta on")
+    readline.parse_and_bind("set convert-meta off")
+    readline.parse_and_bind("set enable-meta-keybindings on")
+except ImportError:
+    pass
 
 
-# 系统提示词
-def _default_system_prompt() -> str:
-    return f"""你是一个工作在 {get_workdir()} 目录下的代码助手。
-使用工具解决问题，涉及相关方向的知识，使用 load_skill 工具添加专业 skill。
-skill列表:
-{SKILL_LOADER.get_descriptions()}"""
+def _print_startup_banner() -> None:
+    cat = r"""
+ /\_/\__
+( o.o  )\_
+ > ^ <   _)
+   \  \  \
+   (__/  /
+     /__/
+"""
+    print(cat.rstrip("\n"))
+    print("Welcome to Welkin's agent")
+    print("Let's build something amazing")
+    print()
 
 
-SUBAGENT_SYSTEM = f"You are a coding subagent at {get_workdir()}. Complete the given task, then summarize your findings."
+def _ask_mode() -> str:
+    print("Permission modes: " + ", ".join(MODES))
+    answer = input("Mode (default): ").strip().lower() or "default"
+    if answer not in MODES:
+        return "default"
+    return answer
 
 
-task_manager = TaskManager(TASKS_DIR)
+def _on_tool_use(tool_name: str, tool_input: dict[str, Any]) -> None:
+    if tool_name == "bash" and isinstance(tool_input.get("command"), str):
+        print(f"\033[33m$ {tool_input['command']}\033[0m")
+
+
+def _print_assistant_text(messages: list[dict[str, Any]]) -> None:
+    """把最后一条消息里的纯文本块打印出来。"""
+    if not messages:
+        return
+    last = messages[-1].get("content")
+    if isinstance(last, list):
+        for block in last:
+            if hasattr(block, "text"):
+                print(block.text)
+    print()
+
+
+def run_repl(ctx: AppContext) -> None:
+    """命令行 REPL：读取用户输入，反复调用 ``agent_loop``，直到用户退出。"""
+    registry = build_main_registry(ctx)
+    tool_runner = build_tool_runner(ctx, registry, on_tool_use=_on_tool_use)
+
+    history: list[dict[str, Any]] = []
+    state = LoopState(messages=history)
+
+    try:
+        while True:
+            try:
+                query = input("\033[36mwa >> \033[0m")
+            except (EOFError, KeyboardInterrupt):
+                break
+
+            if query.strip().lower() in ("q", "quit", "exit", ""):
+                break
+
+            # 每次新用户输入即是一个新任务，分配新的 session_id
+            # agent_loop 内部每次 LLM 调用后会把 session_id 交给 usage，
+            # 下一次用户输入生成新 id 时，计算器自动打印上一个任务的合计并重置
+            state.session_id = generate_session_id()
+            history.append({"role": "user", "content": query})
+
+            agent_loop(
+                state=state,
+                client=ctx.client,
+                tools=registry.tool_specs(),
+                tool_runner=tool_runner,
+                config=ctx.main_loop_config,
+                workspace=ctx.workspace,
+                compact_state=ctx.compact_state,
+                llm_logger=ctx.llm_logger,
+                usage=ctx.usage,
+                hooks=ctx.hooks,
+            )
+
+            _print_assistant_text(history)
+    finally:
+        ctx.usage.flush()
 
 
 def main() -> None:
-    # 加载环境变量
-    config = Config.from_env()
-    # 创建 Anthropic 客户端
-    client = create_anthropic_client(config)
-    # 获取模型 ID
-    model_id = config.require_model_id()
-    # 创建 Agent 循环配置
-    loop_config = AgentLoopConfig(
-        model=model_id, system=_default_system_prompt(), max_tokens=8000
-    )
-
-    # 子 agent 受限工具集
-    sub_registry = ToolRegistry.from_tools(
-        [ReadFileTool(), BashTool(), WriteFileTool(), EditFileTool()]
-    )
-    sub_loop_config = AgentLoopConfig(
-        model=model_id, system=SUBAGENT_SYSTEM, max_tokens=8000
-    )
-    sub_agent_tool = SubAgentTool(
-        client=client, config=sub_loop_config, registry=sub_registry
-    )
-
-    task_tool = TaskTool(task_manager=task_manager)
-    # 主 agent 工具注册表（包含 sub_agent）
-    registry = ToolRegistry.from_tools(
-        [
-            BashTool(),
-            ReadFileTool(),
-            WriteFileTool(),
-            EditFileTool(),
-            LoadSkillTool(skill_loader=SKILL_LOADER),
-            sub_agent_tool,
-            task_tool,
-            CompactTool(client=client, model_id=model_id),
-        ]
-    )
-
-    # 定义工具使用回调函数
-    def on_tool_use(tool_name: str, tool_input: dict[str, Any]) -> None:
-        if tool_name == "bash" and isinstance(tool_input.get("command"), str):
-            print(f"\033[33m$ {tool_input['command']}\033[0m")
-
-    tool_runner = ToolRunner(registry=registry, on_tool_use=on_tool_use)
-
-    # 历史消息列表
-    history: list[dict[str, Any]] = []
-    # 循环直到用户退出
-    while True:
-        try:
-            # 获取用户输入
-            query = input("\033[36mmini >> \033[0m")
-        except (EOFError, KeyboardInterrupt):
-            break
-
-        # 如果用户输入退出命令，则退出循环
-        if query.strip().lower() in ("q", "quit", "exit", ""):
-            break
-        # 将用户输入添加到历史消息列表
-        history.append({"role": "user", "content": query})
-        # 执行 Agent 循环
-        _, usage = agent_loop(
-            messages=history,
-            client=client,
-            tools=registry.tool_specs(),
-            tool_runner=tool_runner,
-            config=loop_config,
-        )
-
-        # 获取最后一个消息的响应内容
-        response_content = history[-1]["content"]
-        # 如果响应内容是列表，则遍历列表
-        if isinstance(response_content, list):
-            for block in response_content:
-                if hasattr(block, "text"):
-                    # 任务完成后反馈
-                    print(block.text)
-
-        # 打印本次任务 token 用量
-        cache_read = usage.get("cache_read_input_tokens", 0)
-        cache_create = usage.get("cache_creation_input_tokens", 0)
-        parts = [
-            f"in={usage.get('input_tokens', 0)}",
-            f"out={usage.get('output_tokens', 0)}",
-        ]
-        if cache_read:
-            parts.append(f"cache_read={cache_read}")
-        if cache_create:
-            parts.append(f"cache_create={cache_create}")
-        print(f"\033[90m[tokens] {'  '.join(parts)}\033[0m")
-        print()
+    _print_startup_banner()
+    mode = _ask_mode()
+    ctx = build_app_context(mode=mode)
+    run_repl(ctx)

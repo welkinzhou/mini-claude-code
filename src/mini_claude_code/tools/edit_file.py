@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from mini_claude_code.utils import safe_path
 
-from .base import JsonObject, ToolSpec
+from mini_claude_code.infra.paths import safe_path
+from mini_claude_code.runtime.tool_spec import JsonObject, ToolSpec
 
 
 @dataclass(frozen=True, slots=True)
@@ -11,7 +11,6 @@ class EditFileTool:
 
     @property
     def spec(self) -> ToolSpec:
-        # 返回工具规范
         return ToolSpec(
             name="edit_file",
             description="Replace exact text in a file.",
@@ -26,7 +25,7 @@ class EditFileTool:
             },
         )
 
-    def run(self, tool_input: JsonObject, _: "ToolRunner") -> str:
+    def run(self, tool_input: JsonObject, _context=None) -> str:
         path = tool_input.get("path")
         old_text = tool_input.get("old_text")
         new_text = tool_input.get("new_text")
@@ -39,5 +38,3 @@ class EditFileTool:
             return f"Edited {path}"
         except Exception as e:
             return f"Error: {e}"
-        finally:
-            fp.close()

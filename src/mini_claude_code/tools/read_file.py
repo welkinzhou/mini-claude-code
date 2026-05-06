@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from mini_claude_code.utils import safe_path
+from mini_claude_code.infra.paths import safe_path
 
-from .base import JsonObject, ToolSpec
+from mini_claude_code.runtime.tool_spec import JsonObject, ToolSpec
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,7 +27,7 @@ class ReadFileTool:
             },
         )
 
-    def run(self, tool_input: JsonObject, _: "ToolRunner") -> str:
+    def run(self, tool_input: JsonObject, _context=None) -> str:
         path = tool_input.get("path")
         limit = tool_input.get("limit")
         try:

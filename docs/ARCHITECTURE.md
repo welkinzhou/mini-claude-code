@@ -1,6 +1,6 @@
 # 项目分层架构说明
 
-本文档描述 `mini-claude-code` 重构后的目录结构、各层职责，以及背后的设计取舍。
+本文档描述 `what-coder` 重构后的目录结构、各层职责，以及背后的设计取舍。
 所有术语沿用业界通行说法，便于检索与对照（依赖注入、组合根、协议、整洁架构等）。
 
 ## 1. 设计目标
@@ -24,16 +24,16 @@
 
 ## 2. 分层结构总览
 
-| 层 | 职责 | 是否允许有副作用 | 可被谁依赖 |
-| --- | --- | --- | --- |
-| `domain/` | 纯业务对象与规则 | 否 | 任何层 |
-| `infra/` | 基础设施（路径校验、日志写入、序列化） | 否（IO 只在调用时发生） | 任何层 |
-| `providers/` | 外部服务适配（LLM 客户端、Skill 加载器） | 否（同上） | runtime / tools / app |
-| `compact/` | 上下文压缩策略 | 否 | runtime / tools / app |
-| `runtime/` | Agent 运行时（循环、工具调度、钩子、权限） | 否 | tools / app / cli |
-| `tools/` | 具体工具实现 | 否 | app / cli |
-| `app/` | 装配层（组合根） | **是**（仅此一处） | cli |
-| `cli.py` | 命令行交互入口 | 仅终端 IO | 不被任何模块依赖 |
+| 层           | 职责                                       | 是否允许有副作用        | 可被谁依赖            |
+| ------------ | ------------------------------------------ | ----------------------- | --------------------- |
+| `domain/`    | 纯业务对象与规则                           | 否                      | 任何层                |
+| `infra/`     | 基础设施（路径校验、日志写入、序列化）     | 否（IO 只在调用时发生） | 任何层                |
+| `providers/` | 外部服务适配（LLM 客户端、Skill 加载器）   | 否（同上）              | runtime / tools / app |
+| `compact/`   | 上下文压缩策略                             | 否                      | runtime / tools / app |
+| `runtime/`   | Agent 运行时（循环、工具调度、钩子、权限） | 否                      | tools / app / cli     |
+| `tools/`     | 具体工具实现                               | 否                      | app / cli             |
+| `app/`       | 装配层（组合根）                           | **是**（仅此一处）      | cli                   |
+| `cli.py`     | 命令行交互入口                             | 仅终端 IO               | 不被任何模块依赖      |
 
 **根本约束**：依赖箭头**只能从外向内**（从更靠近副作用的层指向更纯净的层）。
 内层 `domain` / `infra` / `providers` **不能** import 外层 `runtime` / `tools` / `app` / `cli`。
@@ -44,9 +44,9 @@
 flowchart TD
     cli[cli.py]
     bootstrap[app/bootstrap.py]
-    appCtx[app/context.py + config + workspace]
+    appCtx[app/context.py]
 
-    domain[domain/<br/>state/messages/usage]
+    domain[domain/<br/>state/messages/usage<br/>config/workspace]
     infra[infra/<br/>paths/llm_logger/serializers]
     providers[providers/<br/>llm/skills]
     runtime[runtime/<br/>loop/tool_runner/hooks/permission]
@@ -60,6 +60,12 @@ flowchart TD
     bootstrap --> runtime
     bootstrap --> tools
     bootstrap --> compact
+    bootstrap --> domain
+    appCtx --> domain
+    appCtx --> infra
+    appCtx --> providers
+    appCtx --> runtime
+    appCtx --> compact
 
     runtime --> domain
     runtime --> infra
@@ -69,8 +75,10 @@ flowchart TD
     tools --> infra
     tools --> providers
     tools --> compact
+    tools --> domain
     compact --> providers
     compact --> infra
+    compact --> domain
     providers --> domain
 ```
 
@@ -83,8 +91,15 @@ flowchart TD
 - `state.py`：`LoopState`、`generate_session_id` —— Agent 循环的状态机字段。
 - `messages.py`：`normalize_messages` —— 把内部消息列表整理成 Anthropic API 协议要求的格式。
 - `usage.py`：`TokenUsage`（TypedDict）、`UsageCalculator` —— token 用量统计。
+- `config.py`：`AppConfig` —— 应用级配置值对象（不可变，工厂方法读环境变量）。
+- `workspace.py`：`WorkspacePaths` —— 工作区根目录及其下所有约定路径的集中描述。
 
 **禁止**：import `runtime` / `tools` / `app` / `cli` / `providers` / `infra`。
+
+> 关于 `AppConfig` 与 `WorkspacePaths` 为何放在 `domain/`：它们都是
+> **不可变值对象（Value Object）**，本身不做任何 IO（构造时的 `os.getenv`
+> 与 `Path.cwd()` 是显式工厂方法，由 `bootstrap` 在装配阶段调用）。
+> 把它们留在 `app/` 会导致 `runtime` / `compact` / `providers` 反向依赖外层。
 
 ### 4.2 `infra/` — 基础设施层
 
@@ -151,22 +166,23 @@ Agent 主循环与工具执行调度：
 
 唯一允许触发副作用的层：
 
-- `config.py`：`AppConfig` —— 从环境变量读出来的配置数据类（无 `load_dotenv`）。
-- `workspace.py`：`WorkspacePaths` —— 工作区根目录及其下所有约定路径的集中描述。
 - `context.py`：`AppContext` —— 聚合所有会话级依赖的容器。
 - `bootstrap.py`：`build_app_context()` / `build_main_registry()` /
-  `build_subagent_registry()` / `build_tool_runner()` —— 唯一组合根。
+  `build_subagent_registry()` / `build_tool_runner()` / `build_loop_hooks()`
+  —— 唯一组合根。
 
 `build_app_context` 负责：
+
 1. 调用 `load_dotenv`；
-2. 实例化 `AppConfig`、`WorkspacePaths`、`Anthropic` client；
-3. 实例化 `LLMCallLogger`、`SkillLoader`、`PermissionManager`、`HookManager`、
-   `UsageCalculator`、`CompactState`；
+2. 通过 `AppConfig.from_env()`、`WorkspacePaths.from_cwd()` 构造值对象；
+3. 实例化 `Anthropic` client、`LLMCallLogger`、`SkillLoader`、`PermissionManager`、
+   `HookManager`、`UsageCalculator`、`CompactState`、`LoopHooks`；
 4. 把以上对象塞进 `AppContext` 返回。
 
 ### 4.8 `cli.py` — 命令行入口
 
 只做三件事：
+
 1. 打印 banner、读取权限模式；
 2. 调 `build_app_context(mode)` 拿到一个完整的 `AppContext`；
 3. 在 REPL 循环里反复调 `agent_loop`，退出时调 `ctx.usage.flush()`。
@@ -180,6 +196,7 @@ Agent 主循环与工具执行调度：
 所有依赖只在 `app/bootstrap.py` 中构造一次。这是依赖注入领域的标准做法：
 **应用程序应有且只有一个地方负责把对象图组装起来**，其它地方只消费已经组装好的对象。
 好处：
+
 - 单元测试时可以用替身（fake / stub）替换 `bootstrap` 产物，不需要 monkey-patch 模块全局。
 - 避免"a 处用 cwd，b 处用注入 workspace"这种行为不一致。
 - 任何环境差异（生产 / 测试 / SDK 嵌入）只改一处。
@@ -188,12 +205,12 @@ Agent 主循环与工具执行调度：
 
 重构前存在的模块级单例：
 
-| 旧位置 | 旧形式 | 新位置 |
-| --- | --- | --- |
-| `core.agent` | `llm_call_logger = LLMCallLogger()` | `AppContext.llm_logger` |
-| `core.permission` | `permission_manager = PermissionManager()` | `AppContext.permission` |
-| `compact.compact` | `compact_state = CompactState()` | `AppContext.compact_state` |
-| `utils.usage_calc` | `usage_calculator = UsageCalculator()` | `AppContext.usage` |
+| 旧位置             | 旧形式                                     | 新位置                     |
+| ------------------ | ------------------------------------------ | -------------------------- |
+| `core.agent`       | `llm_call_logger = LLMCallLogger()`        | `AppContext.llm_logger`    |
+| `core.permission`  | `permission_manager = PermissionManager()` | `AppContext.permission`    |
+| `compact.compact`  | `compact_state = CompactState()`           | `AppContext.compact_state` |
+| `utils.usage_calc` | `usage_calculator = UsageCalculator()`     | `AppContext.usage`         |
 
 全局单例的最大问题是「隐式依赖」：调用方看不到它依赖了什么。
 依赖注入把依赖列在构造函数 / 函数参数上，调用关系一目了然。

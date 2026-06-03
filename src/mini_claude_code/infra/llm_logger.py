@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import traceback as tb
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, TypedDict
 from uuid import uuid4
@@ -98,4 +98,4 @@ class LLMCallLogger:
 
     @staticmethod
     def _now() -> str:
-        return datetime.now(UTC).strftime("%Y:%m:%d %H:%M:%S")
+        return datetime.now().strftime("%Y:%m:%d %H:%M:%S")

@@ -1,6 +1,6 @@
-# 简单 agent
+# Mini agent
 
-学习使用项目
+本项目是一个命令行 agent 助手，通过赋予大模型与现实交互的能力，完成实际任务。
 
 ## 项目基础
 
@@ -36,6 +36,86 @@
                                 v
         <-       调用接口，根据返回值，调用 tool
 ```
+
+整体架构参考 clean architecture，外层依赖内层，不能反转。最内层 Entities，对应 Domain，内部业务实体封装，包括 Use Case 也可以封装在里面。
+
+Interface Adapters 包括 infra、provider、tools，通过 runtime 作为 controller，实现交互控制
+
+```mermaid
+flowchart TD
+subgraph Frameworks["Frameworks &amp; Drivers (最外层)"]
+cli[cli.py]
+bootstrap[app/bootstrap.py]
+llmLogger[infra/llm_logger.py]
+end
+
+    subgraph Adapters["Interface Adapters"]
+        toolRunner[runtime/tool_runner.py]
+        tools[tools/*<br/>read/write/edit/bash/...]
+        anthropic[providers/llm/anthropic.py]
+        llmClient[providers/llm/client.py]
+        skillLoader[providers/skills/loader.py]
+        paths[infra/paths.py]
+        serializers[infra/serializers.py]
+    end
+
+    subgraph UseCases["Use Cases"]
+        loop[runtime/loop.py<br/>agent_loop]
+        permission[runtime/permission.py<br/>PermissionManager]
+        hooks[runtime/hooks.py<br/>HookManager]
+        compact[compact/compact.py<br/>compact_history]
+    end
+
+    subgraph Entities["Entities (最内层)"]
+        state[domain/state.py<br/>LoopState]
+        messages[domain/messages.py<br/>normalize_messages]
+        usage[domain/usage.py<br/>UsageCalculator,<br/>TokenUsage]
+        toolSpec[runtime/tool_spec.py<br/>Tool, ToolSpec, ToolRunContext<br/>协议]
+        compactState[compact.CompactState]
+        appConfig[app/config.py<br/>AppConfig 值对象]
+        workspace[app/workspace.py<br/>WorkspacePaths 值对象]
+    end
+
+    cli --> bootstrap
+    bootstrap --> tools
+    bootstrap --> loop
+    bootstrap --> permission
+    bootstrap --> hooks
+    bootstrap --> compact
+    bootstrap --> anthropic
+    bootstrap --> llmClient
+    bootstrap --> skillLoader
+    bootstrap --> llmLogger
+    bootstrap --> appConfig
+    bootstrap --> workspace
+
+    cli --> loop
+
+    tools --> toolSpec
+    tools --> paths
+    tools --> skillLoader
+    toolRunner --> permission
+    toolRunner --> hooks
+    toolRunner --> toolSpec
+
+    loop --> messages
+    loop --> state
+    loop --> usage
+    loop --> compact
+    loop --> llmClient
+    loop --> llmLogger
+    loop --> workspace
+
+    compact --> llmClient
+    compact --> workspace
+
+    anthropic --> appConfig
+    permission --> workspace
+    hooks --> workspace
+    llmLogger --> serializers
+```
+
+主体有两个循环，一个是循环接受用户输入，获取任务，另一个是 agent_loop，也就是循环调用 llm，解决问题。入口为 cli.py，入口只负责和用户交互，包括获取用户输入，反馈任务执行结果，拿到输入后把问题委托给 agent_loop 处理。
 
 ## Development
 

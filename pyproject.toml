@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "mini-claude-code"      # 项目名（对外展示、打包用）
+name = "what-coder"      # 项目名（对外展示、打包用）
 version = "0.1.0"
 description = "Mini Claude code project"
 authors = ["welkin <welkin105380@163.com>"]

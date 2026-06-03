@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from mini_claude_code.app.workspace import WorkspacePaths
+from mini_claude_code.domain.workspace import WorkspacePaths
 from mini_claude_code.compact.compact import CompactState
 from mini_claude_code.domain.state import LoopState, generate_session_id
 from mini_claude_code.domain.usage import UsageCalculator

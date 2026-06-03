@@ -2,10 +2,62 @@ from __future__ import annotations
 
 import json
 import re
+import sys
+import termios
+import tty
 from fnmatch import fnmatch
 from pathlib import Path
 
-from mini_claude_code.app.workspace import WorkspacePaths
+from mini_claude_code.domain.workspace import WorkspacePaths
+
+
+def _select_option(prompt: str, options: list[str], default_idx: int = 0) -> str:
+    """方向键选择、Space/Enter 确认的内联选择器。仅在 tty 下生效，否则降级为普通 input。"""
+    if not sys.stdin.isatty():
+        raw = input(f"  {prompt} ({'/'.join(options)}): ").strip().lower()
+        for opt in options:
+            if raw == opt or raw == opt[0]:
+                return opt
+        return options[default_idx]
+
+    selected = default_idx
+
+    def render() -> None:
+        parts = []
+        for i, opt in enumerate(options):
+            if i == selected:
+                parts.append(f"\033[7m {opt} \033[0m")
+            else:
+                parts.append(f" {opt} ")
+        line = f"\r  {prompt}  {'  '.join(parts)}  "
+        sys.stdout.write(line)
+        sys.stdout.flush()
+
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        render()
+        while True:
+            ch = sys.stdin.read(1)
+            if ch == "\x1b":
+                ch2 = sys.stdin.read(1)
+                if ch2 == "[":
+                    ch3 = sys.stdin.read(1)
+                    if ch3 in ("D", "A"):  # 左 / 上
+                        selected = (selected - 1) % len(options)
+                    elif ch3 in ("C", "B"):  # 右 / 下
+                        selected = (selected + 1) % len(options)
+            elif ch in (" ", "\r", "\n"):
+                break
+            elif ch == "\x03":
+                raise KeyboardInterrupt
+            render()
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+    sys.stdout.write("\n")
+    return options[selected]
 
 
 # 工作模式
@@ -156,7 +208,7 @@ class PermissionManager:
         preview = json.dumps(tool_input, ensure_ascii=False)[:200]
         print(f"\n  [Permission] {tool_name}: {preview}")
         try:
-            answer = input("  Allow? (y/n/always): ").strip().lower()
+            answer = _select_option("Allow?", ["y", "n", "always"], default_idx=0)
         except (EOFError, KeyboardInterrupt):
             return False
 
@@ -164,7 +216,7 @@ class PermissionManager:
             self.rules.append({"tool": tool_name, "path": "*", "behavior": "allow"})
             self.consecutive_denials = 0
             return True
-        if answer in ("y", "yes"):
+        if answer == "y":
             self.consecutive_denials = 0
             return True
 

@@ -6,11 +6,13 @@ from mini_claude_code.app.bootstrap import (
     build_app_context,
     build_main_registry,
     build_tool_runner,
+    load_app_config,
+    persist_env_var,
 )
 from mini_claude_code.app.context import AppContext
 from mini_claude_code.domain.state import LoopState, generate_session_id
 from mini_claude_code.runtime.loop import agent_loop
-from mini_claude_code.runtime.permission import MODES
+from mini_claude_code.runtime.permission import MODES, _select_option
 
 
 # 修复 input 获取输入的 bug，只需要导入 readline 模块
@@ -44,11 +46,15 @@ def _print_startup_banner() -> None:
 
 
 def _ask_mode() -> str:
-    print("Permission modes: " + ", ".join(MODES))
-    answer = input("Mode (default): ").strip().lower() or "default"
-    if answer not in MODES:
-        return "default"
-    return answer
+    print("Select permission mode:")
+    return _select_option("Mode:", list(MODES), default_idx=0)
+
+
+def _persist_mode(mode: str) -> None:
+    if persist_env_var("AGENT_MODE", mode):
+        print(f"  [.env] AGENT_MODE={mode}")
+    else:
+        print("  [.env] .env not found, mode not persisted")
 
 
 def _on_tool_use(tool_name: str, tool_input: dict[str, Any]) -> None:
@@ -74,7 +80,12 @@ def run_repl(ctx: AppContext) -> None:
     tool_runner = build_tool_runner(ctx, registry, on_tool_use=_on_tool_use)
 
     history: list[dict[str, Any]] = []
-    state = LoopState(messages=history)
+    state = LoopState(
+        messages=history
+    )  # 状态，包含历史消息、会话 ID、轮次、对话状态转移原因
+
+    for cb in ctx.on_startup:
+        cb(ctx)
 
     try:
         while True:
@@ -83,8 +94,20 @@ def run_repl(ctx: AppContext) -> None:
             except (EOFError, KeyboardInterrupt):
                 break
 
-            if query.strip().lower() in ("q", "quit", "exit", ""):
+            stripped = query.strip().lower()
+            if stripped in ("q", "quit", "exit", ""):
                 break
+
+            if stripped == "/mode":
+                current = ctx.permission.mode
+                print(f"  Current mode: \033[1m{current}\033[0m")
+                new_mode = _select_option(
+                    "Select mode:", list(MODES), default_idx=MODES.index(current)
+                )
+                ctx.permission.set_mode(new_mode)
+                _persist_mode(new_mode)
+                print(f"  Mode switched to \033[1m{new_mode}\033[0m")
+                continue
 
             # 每次新用户输入即是一个新任务，分配新的 session_id
             # agent_loop 内部每次 LLM 调用后会把 session_id 交给 usage，
@@ -103,15 +126,24 @@ def run_repl(ctx: AppContext) -> None:
                 llm_logger=ctx.llm_logger,
                 usage=ctx.usage,
                 hooks=ctx.hooks,
+                loop_hooks=ctx.loop_hooks,
             )
 
             _print_assistant_text(history)
     finally:
         ctx.usage.flush()
+        for cb in ctx.on_shutdown:
+            cb(ctx)
 
 
 def main() -> None:
     _print_startup_banner()
-    mode = _ask_mode()
-    ctx = build_app_context(mode=mode)
+    config = load_app_config()
+    if config.agent_mode in MODES:
+        mode = config.agent_mode
+        print(f"Mode: \033[1m{mode}\033[0m (from .env)")
+        print()
+    else:
+        mode = _ask_mode()
+    ctx = build_app_context(mode=mode, config=config)
     run_repl(ctx)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from anthropic import Anthropic
 
-from mini_claude_code.app.config import AppConfig
+from mini_claude_code.domain.config import AppConfig
 
 
 def create_anthropic_client(config: AppConfig) -> Anthropic:

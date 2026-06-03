@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 from typing import Protocol
 
-from mini_claude_code.app.workspace import WorkspacePaths
+from mini_claude_code.domain.workspace import WorkspacePaths
 
 
 HOOK_EVENTS = ("PreToolUse", "PostToolUse", "SessionStart")

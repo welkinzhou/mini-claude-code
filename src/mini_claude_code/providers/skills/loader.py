@@ -6,6 +6,8 @@ from pathlib import Path
 
 import yaml
 
+from mini_claude_code.infra.md_parser import parse_md_file
+
 
 @dataclass
 class SkillManifest:
@@ -40,8 +42,7 @@ class SkillLoader:
         if not self.skill_dir.exists():
             return
         for path in sorted(self.skill_dir.rglob("SKILL.md")):
-            text = path.read_text()
-            meta, body = self._parse_frontmatter(text)
+            meta, body = parse_md_file(path)
             name = meta.get("name", path.parent.name)
             description = meta.get("description", "No description")
             manifest = SkillManifest(
@@ -52,13 +53,6 @@ class SkillLoader:
                 allowed_tools=meta.get("allowed-tools", []),
             )
             self.documents[name] = SkillDocument(manifest=manifest, body=body.strip())
-
-    def _parse_frontmatter(self, text: str) -> tuple:
-        match = re.match(r"^---\n(.*?)\n---\n(.*)", text, re.DOTALL)
-        if not match:
-            return {}, text
-        meta = yaml.safe_load(match.group(1)) or {}
-        return meta, match.group(2)
 
     def describe_available(self) -> str:
         """获取所有技能简述。"""

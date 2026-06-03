@@ -10,13 +10,12 @@ JsonObject = dict[str, Any]
 class ToolRunContext(Protocol):
     """工具运行期能拿到的最小上下文。
 
-    放在 runtime 层，使工具可以读 ``state`` 与注册一次性轮回钩子，
+    放在 runtime 层，使工具可以读 ``state`` / ``compact_state``，
     而无需反向 import core / app 层。
     """
 
     state: Any
-
-    def add_after_round_once(self, cb: Any) -> None: ...
+    compact_state: Any
 
 
 @dataclass(frozen=True, slots=True)

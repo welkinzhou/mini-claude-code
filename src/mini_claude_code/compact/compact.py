@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from mini_claude_code.app.workspace import WorkspacePaths
+from mini_claude_code.domain.workspace import WorkspacePaths
 from mini_claude_code.providers.llm.spec import LLMCaller
 
 
@@ -24,16 +24,23 @@ class CompactState:
 
     每个 ``agent_loop`` 调用持有一份；在 CLI 长会话中可被多个调用共享，
     以维持 ``recent_files`` 等跨轮信息。
+
+    ``pending_manual`` / ``pending_focus``：LLM 显式调用 compact 工具时，
+    工具将这两个字段置为有效值，由 ``after_turn`` 订阅者在本轮结束后执行压缩。
     """
 
     has_compacted: bool = False
     last_summary: str = ""
     recent_files: list[str] = field(default_factory=list)
+    pending_manual: bool = False
+    pending_focus: str | None = None
 
     def reset(self) -> None:
         self.has_compacted = False
         self.last_summary = ""
         self.recent_files = []
+        self.pending_manual = False
+        self.pending_focus = None
 
 
 def estimate_context_size(messages: list) -> int:

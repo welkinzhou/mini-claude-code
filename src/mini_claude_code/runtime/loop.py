@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from mini_claude_code.app.workspace import WorkspacePaths
+from mini_claude_code.domain.workspace import WorkspacePaths
 from mini_claude_code.compact.compact import (
     CompactState,
     compact_history,
@@ -22,7 +22,7 @@ from .tool_runner import ToolRunner
 
 JsonObject = dict[str, Any]
 
-THRESHOLD = 50000
+THRESHOLD = 800000
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,7 +34,42 @@ class AgentLoopConfig:
     max_tokens: int = 8000
 
 
-AfterRoundHook = Callable[["AgentLoopContext"], None]
+# Forward reference: LoopHooks references AgentLoopContext, defined below.
+@dataclass
+class LoopHooks:
+    """AgentLoop Python 级生命周期钩子。
+
+    所有字段均为回调列表，按注册顺序依次调用。
+
+    签名约定
+    --------
+    - Loop 级 / Turn 级：``Callable[[AgentLoopContext], None]``
+    - on_llm_error：``Callable[[AgentLoopContext, Exception], None]``
+    - on_tool_start：``Callable[[AgentLoopContext, str, JsonObject], None]``
+      参数：ctx, tool_name, tool_input
+    - on_tool_end：``Callable[[AgentLoopContext, str, JsonObject, str], None]``
+      参数：ctx, tool_name, tool_input, tool_output
+    """
+
+    # Loop 生命周期
+    on_loop_start: list[Callable] = field(default_factory=list)
+    on_loop_end: list[Callable] = field(default_factory=list)
+
+    # Turn 生命周期（一次 LLM call + 工具执行 = 一轮）
+    before_turn: list[Callable] = field(default_factory=list)
+    after_turn: list[Callable] = field(default_factory=list)
+
+    # 错误
+    on_llm_error: list[Callable] = field(default_factory=list)
+
+    # 工具执行（permission 通过后，纯观测语义）
+    on_tool_start: list[Callable] = field(default_factory=list)
+    on_tool_end: list[Callable] = field(default_factory=list)
+
+    def fire(self, event: str, *args: Any) -> None:
+        """按顺序调用 ``event`` 对应的回调列表。"""
+        for cb in list(getattr(self, event, [])):
+            cb(*args)
 
 
 @dataclass
@@ -50,25 +85,11 @@ class AgentLoopContext:
     llm_logger: LLMCallLogger
     llm_call: LLMCaller
     usage: UsageCalculator
-    after_round_hooks: list[AfterRoundHook] = field(default_factory=list)
-
-    def add_after_round(self, cb: AfterRoundHook) -> None:
-        """添加一个 after-round 钩子。"""
-        self.after_round_hooks.append(cb)
-
-    def add_after_round_once(self, cb: AfterRoundHook) -> None:
-        """添加一个只触发一次的 after-round 钩子。"""
-
-        def _once(ctx: "AgentLoopContext") -> None:
-            self.after_round_hooks.remove(_once)
-            cb(ctx)
-
-        self.after_round_hooks.append(_once)
-
-    def fire_after_round(self) -> None:
-        """逐个触发已注册的 after-round 钩子。"""
-        for cb in list(self.after_round_hooks):
-            cb(self)
+    hooks: HookManager | None = None
+    loop_hooks: LoopHooks = field(default_factory=LoopHooks)
+    # ToolRunner 把需要在轮次结束后注入的 hook 消息写到这里；
+    # after_turn 的消息注入订阅者负责 flush。
+    pending_messages: list[str] = field(default_factory=list)
 
 
 def estimate_tokens(messages: list) -> int:
@@ -89,6 +110,9 @@ def run_one_turn(
     client = context.client
     llm_logger = context.llm_logger
     usage = context.usage
+    loop_hooks = context.loop_hooks
+
+    loop_hooks.fire("before_turn", context)
 
     messages = state.messages
     # 简单压缩消息：陈旧 tool_result 替换成占位符
@@ -127,9 +151,10 @@ def run_one_turn(
     except Exception as e:
         llm_logger.log_error(call_id=call_id, error=e)
         err_msg = getattr(e, "message", None) or str(e)
-        print(f"\033[31mllm error: {err_msg}\033[0m")  # 红色错误输出
-        # 不让程序结束：直接结束本次 agent_loop，让 cli 回到下一轮输入
+        print(f"\033[31mllm error: {err_msg}\033[0m")
+        loop_hooks.fire("on_llm_error", context, e)
         state.transition_reason = "llm_error"
+        loop_hooks.fire("after_turn", context)
         return False
 
     # 记录本轮 token 用量（按 state.session_id 分桶，内部判断会话切换）
@@ -153,6 +178,7 @@ def run_one_turn(
     if response.stop_reason != "tool_use":
         state.turn_count += 1
         state.transition_reason = None
+        loop_hooks.fire("after_turn", context)
         return False
 
     results = tool_runner.run_from_response_content(response.content, context)
@@ -160,6 +186,7 @@ def run_one_turn(
 
     state.turn_count += 1
     state.transition_reason = "tool_result"
+    loop_hooks.fire("after_turn", context)
     return True
 
 
@@ -176,6 +203,7 @@ def agent_loop(
     usage: UsageCalculator,
     llm_call: LLMCaller = call_llm,
     hooks: HookManager | None = None,
+    loop_hooks: LoopHooks | None = None,
 ) -> Any:
     """Agent 主循环：反复请求 LLM 并执行工具直到模型停止调用工具。
 
@@ -196,6 +224,8 @@ def agent_loop(
             "stop_reason": "tool_use"
         }
     """
+    resolved_hooks = loop_hooks or LoopHooks()
+
     context = AgentLoopContext(
         state=state,
         client=client,
@@ -206,20 +236,16 @@ def agent_loop(
         llm_logger=llm_logger,
         llm_call=llm_call,
         usage=usage,
+        hooks=hooks,
+        loop_hooks=resolved_hooks,
     )
-
-    # SessionStart hook：让外部脚本能在每次新任务开始时注入背景信息
-    if hooks is not None:
-        session_result = hooks.run_hooks("SessionStart", {})
-        for text in session_result.get("messages", []):
-            state.messages.append(
-                {"role": "user", "content": f"[session start]\n{text}"}
-            )
 
     call_id = llm_logger.new_call_id()
 
-    while run_one_turn(context=context, tools=tools, call_id=call_id):
-        context.fire_after_round()
+    resolved_hooks.fire("on_loop_start", context)
 
-    context.fire_after_round()
+    while run_one_turn(context=context, tools=tools, call_id=call_id):
+        pass
+
+    resolved_hooks.fire("on_loop_end", context)
     return state.messages

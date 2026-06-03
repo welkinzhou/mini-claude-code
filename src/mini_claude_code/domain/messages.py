@@ -20,7 +20,9 @@ def normalize_messages(messages: list) -> list:
             clean["content"] = [
                 {
                     k: v
-                    for k, v in block.items()
+                    for k, v in (
+                        block.model_dump() if hasattr(block, "model_dump") else block
+                    ).items()
                     if k not in ("_internal", "_source", "_timestamp")
                 }
                 for block in msg["content"]
@@ -28,21 +30,27 @@ def normalize_messages(messages: list) -> list:
         normalized.append(clean)
 
     # Step 2: tool_result 配对补齐
+    def _get(block, key):
+        if hasattr(block, "model_dump"):
+            return getattr(block, key, None)
+        return block.get(key)
+
     existing_results = set()
     for msg in normalized:
         if isinstance(msg.get("content"), list):
             for block in msg["content"]:
-                if block.get("type") == "tool_result":
-                    existing_results.add(block.get("tool_use_id"))
+                if _get(block, "type") == "tool_result":
+                    existing_results.add(_get(block, "tool_use_id"))
 
+    missing_tool_results = []
     for msg in normalized:
         if msg["role"] == "assistant" and isinstance(msg.get("content"), list):
             for block in msg["content"]:
                 if (
-                    block.get("type") == "tool_use"
-                    and block.get("id") not in existing_results
+                    _get(block, "type") == "tool_use"
+                    and _get(block, "id") not in existing_results
                 ):
-                    normalized.append(
+                    missing_tool_results.append(
                         {
                             "role": "user",
                             "content": [
@@ -54,6 +62,8 @@ def normalize_messages(messages: list) -> list:
                             ],
                         }
                     )
+    if missing_tool_results:
+        normalized.extend(missing_tool_results)
 
     # Step 3: 合并连续同角色消息
     merged = [normalized[0]] if normalized else []

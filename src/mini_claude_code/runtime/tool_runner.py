@@ -18,11 +18,12 @@ class ToolRunner:
     1. PreToolUse hook：可改写 ``tool_input``、注入 additionalContext、
        直接 block 或给出 ``permissionDecision`` 覆盖默认权限判断。
     2. PermissionManager.check：未被 hook 覆盖时按规则 + 模式 + ask 流程决策。
-    3. 执行工具 ``run(tool_input, context)``。
+    3. 执行工具 ``run(tool_input, context)``，执行前后 fire ``on_tool_start``
+       / ``on_tool_end`` 纯观测钩子。
     4. PostToolUse hook：可在工具执行后再次注入 additionalContext。
 
-    additionalContext 通过 ``context.add_after_round_once`` 钩子在本轮 LLM 应答
-    完成后追加为 ``user`` 消息，让模型在下一轮看到。
+    additionalContext 写入 ``context.pending_messages``，由 ``after_turn``
+    订阅者在本轮结束后统一 flush 为 ``user`` 消息。
     """
 
     registry: ToolRegistry
@@ -64,7 +65,7 @@ class ToolRunner:
                 hook_ctx: dict = {"tool_name": tool_name, "tool_input": tool_input}
                 pre_result = self.hooks.run_hooks("PreToolUse", hook_ctx)
                 tool_input = hook_ctx["tool_input"]
-                self._inject_messages(context, pre_result.get("messages", []))
+                self._collect_messages(context, pre_result.get("messages", []))
                 if pre_result.get("blocked"):
                     reason = pre_result.get("block_reason") or "Blocked by hook"
                     results.append(
@@ -87,7 +88,9 @@ class ToolRunner:
             else:
                 if self.on_tool_use is not None:
                     self.on_tool_use(tool_name, tool_input)
+                self._fire_tool_start(context, tool_name, tool_input)
                 output = tool.run(tool_input, context)
+                self._fire_tool_end(context, tool_name, tool_input, output)
 
             # -- PostToolUse hook --
             if self.hooks is not None:
@@ -97,7 +100,7 @@ class ToolRunner:
                     "tool_output": output,
                 }
                 post_result = self.hooks.run_hooks("PostToolUse", post_ctx)
-                self._inject_messages(context, post_result.get("messages", []))
+                self._collect_messages(context, post_result.get("messages", []))
 
             # tool_use_id 让 Anthropic 把结果与对应的工具调用关联起来
             results.append(self._tool_result(tool_id, output))
@@ -133,18 +136,34 @@ class ToolRunner:
         return self.permission.ask_user(tool_name, tool_input)
 
     @staticmethod
-    def _inject_messages(context: ToolRunContext, messages: list[str]) -> None:
-        """通过 after-round 钩子，把 hook 注入的文本以 user 消息追加到对话。"""
+    def _collect_messages(context: ToolRunContext, messages: list[str]) -> None:
+        """把 hook 注入的文本暂存到 context.pending_messages。
+
+        after_turn 订阅者负责把它们 flush 为 ``user`` 消息，保证写入时序
+        （在本轮所有 tool_result 收集完成后再追加）。
+        """
         if not messages:
             return
+        pending = getattr(context, "pending_messages", None)
+        if pending is None:
+            return
+        pending.extend(messages)
 
-        def _do_inject(ctx) -> None:
-            for text in messages:
-                ctx.state.messages.append(
-                    {
-                        "role": "user",
-                        "content": f"[hook context]\n{text}",
-                    }
-                )
+    @staticmethod
+    def _fire_tool_start(
+        context: ToolRunContext, tool_name: str, tool_input: JsonObject
+    ) -> None:
+        loop_hooks = getattr(context, "loop_hooks", None)
+        if loop_hooks is not None:
+            loop_hooks.fire("on_tool_start", context, tool_name, tool_input)
 
-        context.add_after_round_once(_do_inject)
+    @staticmethod
+    def _fire_tool_end(
+        context: ToolRunContext,
+        tool_name: str,
+        tool_input: JsonObject,
+        output: str,
+    ) -> None:
+        loop_hooks = getattr(context, "loop_hooks", None)
+        if loop_hooks is not None:
+            loop_hooks.fire("on_tool_end", context, tool_name, tool_input, output)

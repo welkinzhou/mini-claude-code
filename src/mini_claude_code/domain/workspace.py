@@ -10,6 +10,9 @@ class WorkspacePaths:
 
     把项目里散落的路径常量（``.tasks``、``.transcripts``、``.hooks.json`` 等）
     全部收敛到这里，避免每个模块各自调用 ``Path.cwd()``。
+
+    本身只是值对象（Value Object），不做任何 IO；真正的目录访问由调用方触发
+    （例如 ``mkdir`` / ``read_text``），因此可以安全地放在 domain 层。
     """
 
     work_path: Path
@@ -51,3 +54,7 @@ class WorkspacePaths:
     @property
     def llm_call_log(self) -> Path:
         return self.logs_dir / "llm_calls.jsonl"
+
+    @property
+    def memories_dir(self) -> Path:
+        return self.work_path / ".memory"

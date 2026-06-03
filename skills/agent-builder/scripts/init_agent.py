@@ -76,7 +76,6 @@ if __name__ == "__main__":
     while (q := input(">> ").strip()) not in ("q", "quit", ""):
         print(run(q, h), "\\n")
 ''',
-
     1: '''#!/usr/bin/env python3
 """
 Level 1 Agent - Model as Agent (~200 lines)
@@ -207,11 +206,11 @@ if __name__ == "__main__":
 ''',
 }
 
-ENV_TEMPLATE = '''# API Configuration
+ENV_TEMPLATE = """# API Configuration
 ANTHROPIC_API_KEY=sk-xxx
 ANTHROPIC_BASE_URL=https://api.anthropic.com
 MODEL_NAME=claude-sonnet-4-20250514
-'''
+"""
 
 
 def create_agent(name: str, level: int, output_dir: Path):
@@ -220,7 +219,7 @@ def create_agent(name: str, level: int, output_dir: Path):
     if level not in TEMPLATES and level not in (2, 3, 4):
         print(f"Error: Level {level} not yet implemented in scaffold.")
         print("Available levels: 0 (minimal), 1 (4 tools)")
-        print("For levels 2-4, copy from mini-claude-code repository.")
+        print("For levels 2-4, copy from what-coder repository.")
         sys.exit(1)
 
     # Create output directory
@@ -263,13 +262,22 @@ Levels:
   2  Todo (~300 lines)   - + TodoWrite for structured planning
   3  Subagent (~450)     - + Task tool for context isolation
   4  Skills (~550)       - + Skill tool for domain expertise
-        """
+        """,
     )
     parser.add_argument("name", help="Name of the agent to create")
-    parser.add_argument("--level", type=int, default=1, choices=[0, 1, 2, 3, 4],
-                       help="Complexity level (default: 1)")
-    parser.add_argument("--path", type=Path, default=Path.cwd(),
-                       help="Output directory (default: current directory)")
+    parser.add_argument(
+        "--level",
+        type=int,
+        default=1,
+        choices=[0, 1, 2, 3, 4],
+        help="Complexity level (default: 1)",
+    )
+    parser.add_argument(
+        "--path",
+        type=Path,
+        default=Path.cwd(),
+        help="Output directory (default: current directory)",
+    )
 
     args = parser.parse_args()
     create_agent(args.name, args.level, args.path)
